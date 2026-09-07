@@ -6,4 +6,5 @@ __pycache__/
 .streamlit/
 data/*.sqlite3
 data/uploads/
+data/artifacts/
 *.egg-info/

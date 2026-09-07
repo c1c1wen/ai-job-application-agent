@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS applications (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, approved_artifact_ids_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS source_documents (id INTEGER PRIMARY KEY, filename TEXT NOT NULL, stored_path TEXT NOT NULL, mime_type TEXT NOT NULL, text_content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS profile_fact_versions (id INTEGER PRIMARY KEY, fact_id INTEGER NOT NULL REFERENCES profile_facts(id), value TEXT NOT NULL, evidence TEXT NOT NULL, status TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS application_artifacts (
     id INTEGER PRIMARY KEY, application_id INTEGER NOT NULL REFERENCES applications(id), kind TEXT NOT NULL,
     content TEXT NOT NULL, source_fact_ids_json TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 1,
@@ -90,4 +92,10 @@ def migrate(connection: sqlite3.Connection) -> None:
             connection.execute("ALTER TABLE applications ADD COLUMN approved_artifact_ids_json TEXT NOT NULL DEFAULT '[]'")
         connection.execute("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
         connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (3)")
+    if 4 not in applied:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(profile_facts)")}
+        for name, definition in (("status", "TEXT NOT NULL DEFAULT 'APPROVED'"), ("source_document_id", "INTEGER"), ("source_snippet", "TEXT"), ("confidence", "TEXT NOT NULL DEFAULT 'high'")):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE profile_facts ADD COLUMN {name} {definition}")
+        connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)")
     connection.commit()

@@ -31,11 +31,22 @@ class JobRepository:
         cur=self.connection.execute("INSERT INTO candidate_profiles(display_name,email,phone,location) VALUES (?,?,?,?)",(display_name,email,phone,location)); self.connection.commit(); return cur.lastrowid
     def add_fact(self, profile_id:int, fact:CandidateFact)->int:
         cur=self.connection.execute("INSERT INTO profile_facts(profile_id,fact_type,value,evidence,approved,active) VALUES (?,?,?,?,?,?)",(profile_id,fact.fact_type,fact.value,fact.evidence,int(fact.approved),int(fact.active))); self.connection.commit(); return cur.lastrowid
+    def add_pending_fact(self, profile_id:int, fact:CandidateFact, document_id:int, snippet:str, confidence:str)->int:
+        existing=self.connection.execute("SELECT id FROM profile_facts WHERE profile_id=? AND fact_type=? AND value=? AND active=1",(profile_id,fact.fact_type,fact.value)).fetchone()
+        if existing:return existing["id"]
+        cur=self.connection.execute("INSERT INTO profile_facts(profile_id,fact_type,value,evidence,approved,active,status,source_document_id,source_snippet,confidence) VALUES (?,?,?,?,0,1,'PENDING',?,?,?)",(profile_id,fact.fact_type,fact.value,fact.evidence,document_id,snippet,confidence)); self.connection.execute("INSERT INTO profile_fact_versions(fact_id,value,evidence,status,actor) VALUES (?,?,?,'PENDING','ai_extraction')",(cur.lastrowid,fact.value,fact.evidence)); self.connection.commit(); return cur.lastrowid
+    def add_document(self, filename:str, path:str, mime_type:str, text:str)->int:
+        cur=self.connection.execute("INSERT INTO source_documents(filename,stored_path,mime_type,text_content) VALUES (?,?,?,?)",(filename,path,mime_type,text)); self.connection.commit(); return cur.lastrowid
+    def review_fact(self, fact_id:int, status:str, value:str|None=None, evidence:str|None=None)->None:
+        row=self.connection.execute("SELECT value,evidence FROM profile_facts WHERE id=?",(fact_id,)).fetchone(); value=value or row["value"]; evidence=evidence or row["evidence"]; active=status=="APPROVED"
+        self.connection.execute("UPDATE profile_facts SET value=?,evidence=?,approved=?,active=?,status=? WHERE id=?",(value,evidence,int(status=="APPROVED"),int(active),status,fact_id)); self.connection.execute("INSERT INTO profile_fact_versions(fact_id,value,evidence,status,actor) VALUES (?,?,?,?,?)",(fact_id,value,evidence,status,"user")); self._audit("profile_fact",fact_id,"FACT_"+status,"user",{}); self.connection.commit()
     def set_fact_active(self, fact_id:int, active:bool)->None:
-        self.connection.execute("UPDATE profile_facts SET active=? WHERE id=?",(int(active),fact_id)); self._audit("profile_fact",fact_id,"FACT_REVOKED" if not active else "FACT_REACTIVATED","user",{}); self.connection.commit()
+        self.connection.execute("UPDATE profile_facts SET active=?,status=? WHERE id=?",(int(active),"APPROVED" if active else "REVOKED",fact_id)); self._audit("profile_fact",fact_id,"FACT_REVOKED" if not active else "FACT_REACTIVATED","user",{}); self.connection.commit()
     def facts(self)->list[CandidateFact]:
         rows=self.connection.execute("SELECT id,fact_type,value,evidence,approved,active FROM profile_facts ORDER BY id").fetchall()
         return [CandidateFact(r["fact_type"],r["value"],r["evidence"],bool(r["approved"]),r["id"],bool(r["active"])) for r in rows]
+    def fact_review_rows(self):
+        return self.connection.execute("SELECT f.id,f.fact_type,f.value,f.status,f.evidence,f.source_snippet,f.confidence,f.source_document_id,d.filename FROM profile_facts f LEFT JOIN source_documents d ON d.id=f.source_document_id ORDER BY f.id DESC").fetchall()
     def _source(self, job:JobInput)->int|None:
         if not job.source_key:return None
         self.connection.execute("INSERT OR IGNORE INTO job_sources(name,kind,config_json) VALUES (?,?,?)",(job.source_key,job.source,json.dumps({"board_token":job.source_key})))

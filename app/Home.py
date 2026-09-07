@@ -10,6 +10,8 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from openai import OpenAIError
+
 from job_agent.config import get_settings
 from job_agent.connectors.greenhouse import GreenhouseConnector
 from job_agent.domain.models import (
@@ -20,9 +22,12 @@ from job_agent.domain.models import (
     ScoreConfig,
 )
 from job_agent.domain.scoring import score_job
+from job_agent.llm.cv_extraction import CVExtractor
 from job_agent.llm.extraction import ExtractionError, OpenAIJobExtractor
 from job_agent.repositories.database import connect, migrate
 from job_agent.repositories.job_repository import JobRepository
+from job_agent.services.cv_parser import CVParseError, parse_cv
+from job_agent.services.cv_storage import store_upload
 from job_agent.services.materials import grounded_materials
 
 st.set_page_config(page_title="AI Job Hunter", page_icon="🎯", layout="wide")
@@ -58,6 +63,17 @@ if page == "Dashboard":
 elif page == "Candidate Profile":
     st.subheader("Candidate profile — source of truth")
     st.caption("Only approved facts with evidence may appear in generated application materials.")
+    upload = st.file_uploader("Upload CV (PDF or DOCX)", type=["pdf", "docx"])
+    if upload and st.button("Parse and extract pending facts"):
+        try:
+            content=upload.getvalue(); text=parse_cv(upload.name,content); path=store_upload(ROOT/"data"/"artifacts",upload.name,content)
+            profile_id=repo.get_or_create_profile(); document_id=repo.add_document(upload.name,str(path),upload.type or "application/octet-stream",text)
+            if not settings.openai_api_key: st.error("Set OPENAI_API_KEY to run structured CV extraction.")
+            else:
+                for extracted in CVExtractor(settings.openai_api_key,settings.openai_model).extract(text): repo.add_pending_fact(profile_id,CandidateFact(extracted.fact_type,extracted.value,extracted.evidence,False),document_id,extracted.snippet,extracted.confidence)
+                st.success("Extraction complete. Review pending facts below.")
+        except CVParseError as exc: st.error(str(exc))
+        except (OpenAIError, ValueError): st.error("CV extraction failed safely; no facts were approved.")
     with st.form("profile"):
         name = st.text_input("Name")
         email = st.text_input("Email")
@@ -77,10 +93,18 @@ elif page == "Candidate Profile":
                 st.success("Approved fact added.")
             else:
                 st.error("A fact and evidence are both required.")
-    for fact in repo.facts():
-        st.write(f"{'✓ active' if fact.active else '✕ revoked'} — {fact.fact_type}: {fact.value} — {fact.evidence}")
-        if fact.active and st.button("Revoke fact", key=f"revoke-{fact.id}"):
-            repo.set_fact_active(fact.id, False); st.rerun()
+    for fact in repo.fact_review_rows():
+        with st.container(border=True):
+            st.markdown(f"**{fact['status'].title()}** · **{fact['fact_type']}** — {fact['value']}")
+            st.caption(f"CV: {fact['filename'] or 'manual profile entry'} · Document ID: {fact['source_document_id'] or '—'} · Confidence: {fact['confidence'] or '—'}")
+            st.write(f"Evidence: {fact['evidence']}")
+            if fact['source_snippet']: st.caption(f"Source excerpt: {fact['source_snippet']}")
+            if fact['status'] == 'APPROVED' and st.button("Revoke fact", key=f"revoke-{fact['id']}"):
+                repo.set_fact_active(fact['id'], False); st.rerun()
+            if fact['status'] == 'PENDING':
+                edited=st.text_input("Edit before approval",fact['value'],key=f"fact-{fact['id']}")
+                if st.button("Approve fact",key=f"approve-fact-{fact['id']}"): repo.review_fact(fact['id'],"APPROVED",edited); st.rerun()
+                if st.button("Reject fact",key=f"reject-fact-{fact['id']}"): repo.review_fact(fact['id'],"REJECTED"); st.rerun()
 
 elif page == "Settings":
     st.subheader("Deterministic scoring settings")
