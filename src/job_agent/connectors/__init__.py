@@ -1,0 +1,2 @@
+"""Compliant job-source connectors."""
+
