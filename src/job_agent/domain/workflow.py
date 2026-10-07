@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from job_agent.domain.models import ApplicationState
+from job_agent.domain.models import ApplicationState, ExecutionState
 
 
 class InvalidTransition(ValueError):
@@ -41,3 +41,23 @@ def assert_transition(current: ApplicationState, target: ApplicationState) -> No
 def is_human_checkpoint(state: ApplicationState) -> bool:
     return state in {ApplicationState.REVIEW, ApplicationState.APPROVED, ApplicationState.HUMAN_VERIFICATION_REQUIRED}
 
+
+ALLOWED_EXECUTION_TRANSITIONS: dict[ExecutionState, set[ExecutionState]] = {
+    ExecutionState.READY_TO_APPLY: {ExecutionState.OPENING_APPLICATION, ExecutionState.BROWSER_CONTEXT_MISMATCH},
+    ExecutionState.OPENING_APPLICATION: {ExecutionState.FILLING_FORM, ExecutionState.HUMAN_VERIFICATION_REQUIRED, ExecutionState.BROWSER_CONTEXT_MISMATCH, ExecutionState.FAILED},
+    ExecutionState.FILLING_FORM: {ExecutionState.WAITING_FOR_USER, ExecutionState.HUMAN_VERIFICATION_REQUIRED, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.BROWSER_CONTEXT_MISMATCH, ExecutionState.FAILED},
+    ExecutionState.WAITING_FOR_USER: {ExecutionState.RESUMING, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.BROWSER_CONTEXT_MISMATCH, ExecutionState.FAILED},
+    ExecutionState.RESUMING: {ExecutionState.WAITING_FOR_USER, ExecutionState.HUMAN_VERIFICATION_REQUIRED, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.BROWSER_CONTEXT_MISMATCH, ExecutionState.FAILED},
+    ExecutionState.HUMAN_VERIFICATION_REQUIRED: {ExecutionState.POST_VERIFICATION_REVALIDATION, ExecutionState.RESUMING, ExecutionState.WAITING_FOR_USER, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.FAILED},
+    ExecutionState.POST_VERIFICATION_REVALIDATION: {ExecutionState.HUMAN_VERIFICATION_REQUIRED, ExecutionState.WAITING_FOR_USER, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.FAILED},
+    ExecutionState.READY_FOR_FINAL_REVIEW: {ExecutionState.SUBMITTING, ExecutionState.RESUMING, ExecutionState.BROWSER_CONTEXT_MISMATCH},
+    ExecutionState.SUBMITTING: {ExecutionState.APPLIED, ExecutionState.FAILED, ExecutionState.HUMAN_VERIFICATION_REQUIRED, ExecutionState.POST_VERIFICATION_REVALIDATION, ExecutionState.WAITING_FOR_USER},
+    ExecutionState.APPLIED: set(),
+    ExecutionState.BROWSER_CONTEXT_MISMATCH: {ExecutionState.OPENING_APPLICATION, ExecutionState.RESUMING, ExecutionState.WAITING_FOR_USER, ExecutionState.FAILED},
+    ExecutionState.FAILED: {ExecutionState.POST_VERIFICATION_REVALIDATION, ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.HUMAN_VERIFICATION_REQUIRED},
+}
+
+
+def assert_execution_transition(current: ExecutionState, target: ExecutionState) -> None:
+    if target not in ALLOWED_EXECUTION_TRANSITIONS[current]:
+        raise InvalidTransition(f"Cannot transition execution from {current} to {target}.")

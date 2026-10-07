@@ -1,52 +1,136 @@
 # AI Job Hunter & Application Agent
 
-A local-first, human-in-the-loop job-search workflow for one candidate. It is intentionally built to prioritise relevant, accurate applications over application volume.
+An evidence-grounded, human-in-the-loop AI agent for discovering, evaluating, and preparing job applications.
 
-## Current V1 capabilities
+## Overview
 
-- Candidate profile facts with evidence references; these are the sole allowed source for personal claims.
-- Manual job intake, duplicate prevention, deterministic screening, and an explainable score.
-- Persistent SQLite workflow: `DISCOVERED → SCREENED → REVIEW → MATERIALS_READY → APPROVED → READY_TO_APPLY`.
-- Grounded application-material drafts and claim ledger for human review.
-- Explicit approval and append-only-by-application audit events (the local SQLite file remains user-controlled).
-- A minimal Streamlit dashboard, profile editor, job intake form, and review queue.
-- Manual public Greenhouse-board imports; repeated imports preserve existing workflow state.
+Job searching is fragmented across employer career sites and public applicant-tracking systems. Generic AI writing tools can make an equally serious mistake: turning a job requirement into an unsupported claim about a candidate.
 
-## Intentionally not automated in V1
+This project brings those steps into one local workflow. It discovers public vacancies, filters and verifies opportunities, evaluates fit against an approved candidate profile, and prepares job-specific materials. Deterministic rules decide eligibility, scoring, and safety boundaries; AI is used for structured extraction and grounded writing. A person remains in control of profile changes, sensitive answers, and external submission.
 
-V1 does **not** log in to websites, fill application forms, upload files, submit applications, scrape restricted job boards, bypass rate limits, or solve CAPTCHAs. An approved item is moved to `READY_TO_APPLY`, preserving a clean handoff point for a later, permitted execution component.
+## Product workflow
 
-## Safety and human-in-the-loop boundaries
+`Discover → Filter → Verify → Evaluate → Tailor → Prepare → Review`
 
-- Every candidate claim must be an approved `profile_fact` with a human-readable evidence reference. The material generator uses only those facts and labels gaps rather than inventing information.
-- Structured extraction can supply requirements; deterministic code calculates the score from those requirements and approved active facts.
-- `REVIEW`, `APPROVED`, and `HUMAN_VERIFICATION_REQUIRED` are explicit human checkpoints.
-- CAPTCHA, reCAPTCHA, hCaptcha, “are you human?”, and platform security controls are never targets for automation. A future executor must persist `HUMAN_VERIFICATION_REQUIRED`, notify the user, and resume only after manual completion.
+| Stage | What it does |
+| --- | --- |
+| Discover | Collects vacancies from configured public employer ATS sources and approved fallback sources. |
+| Filter | Applies configured location, role-family, seniority, and eligibility rules before spending effort on a role. |
+| Verify | Prefers a live direct employer or ATS vacancy over an aggregator record where a direct source is available. |
+| Evaluate | Produces a deterministic match assessment from the job requirements and approved active candidate evidence. |
+| Tailor | Uses AI only to turn selected supported evidence into job-specific, candidate-facing material. |
+| Prepare | Creates versioned application materials and records the evidence used. |
+| Review | Keeps human decisions, legal/privacy consent, CAPTCHAs, authentication, and final external submission explicit. |
 
-## Platform and ATS limitations
+## Demo
 
-The first supported discovery route is configured employer boards using published ATS feeds, starting with Greenhouse. The Greenhouse Job Board API exposes published job data without authentication for GET requests; it is suitable for discovery, not a blanket authorisation to submit applications. [Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html)
+The built-in **Demo** page is a read-only recruiter walkthrough of the persisted discovery funnel, opportunity journey, requirement-to-evidence mapping, and human approval boundaries.
 
-LinkedIn automation/scraping is out of scope: LinkedIn prohibits third-party crawlers, bots, plug-ins, and tools that scrape or automate activity. [LinkedIn policy](https://www.linkedin.com/help/linkedin/answer/a1341387/prohibited-software-and-extensions?lang=en) SEEK integration must use approved access; its API requires approval. [SEEK Developer API](https://developer.seek.com/)
+Portfolio screenshots are intentionally not committed with local runtime data. To add sanitized screenshots after cloning, capture these three views from the Demo page at desktop width and place them in [`docs/assets/`](docs/assets/README.md):
 
-## Planned architecture
+1. `pipeline-and-opportunity.png` — the live funnel and selected opportunity.
+2. `requirement-evidence-mapping.png` — the requirement-to-evidence table.
+3. `trust-and-human-review.png` — the safety, architecture, and final human-control section.
 
-```text
-Permitted ATS feed → connector → normaliser/deduplicator → hard eligibility rules
-→ structured extraction → deterministic score → review → materials → approval
-→ READY_TO_APPLY → [future execution adapter] → human verification, if required → tracking
+Do not include contact details, CV text, application answers, URLs containing personal identifiers, browser UI, or API credentials in screenshots.
+
+## What makes it different
+
+- **Direct-source first:** public ATS listings can be resolved to the employer’s own application destination before they enter the active queue.
+- **Deterministic screening:** location, seniority, role-family, and explicit eligibility rules are not left to a free-form model judgement.
+- **Evidence, not résumé improvisation:** candidate claims are drawn from approved active profile facts with source provenance.
+- **Grounded writing:** generated material selects relevant evidence for the role; unsupported requirements remain visible gaps instead of becoming invented experience.
+- **Freshness awareness:** canonical CV and approved-profile changes make dependent opportunity evaluations visibly stale until re-evaluated.
+- **Human control:** sensitive questions, privacy/legal consent, CAPTCHA, authentication, and final submission remain explicit human checkpoints.
+- **Persistent audit trail:** job, evaluation, material-version, and application-workflow history is retained locally.
+
+## Example grounded evaluation
+
+The Demo uses a persisted **Foodbank Queensland — Business Intelligence Analyst** opportunity to illustrate how a requirement is mapped to approved evidence rather than treated as a prompt for free-form claims.
+
+| Job requirement | Candidate evidence | Result |
+| --- | --- | --- |
+| Power BI | AdventureWorks Sales Analytics Dashboard and an approved Power BI capability | Matched |
+| SQL | Approved SQL evidence | Matched |
+| Excel | Approved Excel evidence | Matched |
+
+This table is intentionally narrow: it shows only evidence already approved in the local candidate profile. A job-description term alone is never evidence that the candidate has performed that work.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    sources[Public job sources] --> registry[Source registry & ingestion]
+    registry --> screen[Eligibility & direct-source verification]
+    profile[Approved candidate profile\nand canonical CV] --> engine[Deterministic evaluation engine]
+    screen --> engine
+    engine --> ai[Grounded AI layer]
+    ai --> materials[Versioned application preparation]
+    materials --> review[Human review & approval]
+    review --> external[Guarded external ATS action]
 ```
 
-**V2:** configured Greenhouse/Lever discovery, local scheduling, document versioning, notifications, and supervised browser assistance only where permitted. Browser execution will be an adapter that consumes `READY_TO_APPLY` and can emit `APPLYING`, `HUMAN_VERIFICATION_REQUIRED`, or `APPLIED` without changing the current core tables.
+The architecture is deliberately hybrid:
 
-**V3:** optional deployment, additional approved integrations, richer outcome analytics, evaluation datasets, and user-approved learning recommendations. The system will never silently change application rules from outcomes.
+- Deterministic services handle eligibility, deduplication, scoring, workflow state, and safety policy.
+- The LLM is used for structured extraction, requirement/evidence matching assistance, and writing constrained to selected approved evidence.
+- SQLite stores local workflow and provenance history; it is runtime data and is not part of the public repository.
+
+## Tech stack
+
+- **Python 3.11+** application and service layer
+- **Streamlit** recruiter and operator interface
+- **SQLite** local persistence and workflow history
+- **Pydantic**-based domain modelling and validation
+- **OpenAI API** integration for structured extraction and grounded generation when configured
+- **HTTPX** public-source and ATS HTTP access
+- **Playwright** guarded browser execution for supported ATS flows
+- **pypdf** and **python-docx** CV text extraction
+- **pytest** and **Ruff** for automated verification and linting
+
+## Safety and grounding
+
+- Candidate-facing claims must be supported by approved, active candidate facts.
+- A requirement in a job description cannot become a candidate fact or an experience claim.
+- Missing skills and other unsupported requirements remain explicit gaps.
+- CV/profile changes make old opportunity evaluations stale; re-evaluation is an explicit action that preserves history.
+- Candidate facts, saved answers, credentials, cookies, CAPTCHAs, and consent are not inferred.
+- External submission requires a separate, explicit final confirmation and verified platform success evidence.
+
+## Testing
+
+The repository includes behavioural tests for discovery, deduplication, scoring, profile/CV freshness, grounding, application workflow states, and provider-specific boundaries.
+
+Run the current suite locally:
+
+```bash
+pytest -q
+ruff check .
+python3 -m compileall -q src app
+git diff --check
+```
 
 ## Run locally
 
-1. Create and activate a virtual environment: `python3 -m venv .venv && source .venv/bin/activate`
-2. Install the app: `pip install -e '.[dev]'`
-3. Copy `.env.example` to `.env` and add an OpenAI key only when LLM extraction is enabled.
-4. Run: `streamlit run app/Home.py`
-5. Test: `pytest`
+Requirements: Python 3.11 or newer and a local virtual environment.
 
-The initial UI works without an API key because its V1 material draft fallback is grounded and deterministic. SQLite contains sensitive personal data: keep the `data/` directory on an encrypted local disk, restrict device access, and back it up securely. Never commit `.env`, the SQLite database, uploaded CVs, session cookies, or credentials.
+```bash
+git clone <your-repository-url>
+cd AI-Job-Application-Agent
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev]'
+cp .env.example .env
+streamlit run app/Home.py
+```
+
+Edit `.env` locally only when a feature needs an API credential. The application works with local SQLite runtime data at the configurable `DATABASE_PATH`; do not commit that database, candidate documents, generated materials, logs, or browser profile.
+
+## Project status
+
+This is a portfolio and personal AI-automation project, not a production job-board platform. Public-source coverage is bounded by configured, compliant providers and direct-source resolution. ATS execution is intentionally guarded and assisted where a provider, login, consent step, CAPTCHA, or form cannot be safely validated. It does not claim universal or unattended autonomous submission.
+
+## Repository privacy
+
+Local candidate documents, SQLite records, generated application materials, logs, browser/session state, and `.env` credentials are excluded from version control. See [`.gitignore`](.gitignore) and [`.env.example`](.env.example) before publishing a fork.

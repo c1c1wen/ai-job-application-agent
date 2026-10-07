@@ -4,6 +4,25 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+class CandidateFactType(StrEnum):
+    NAME = "name"
+    EMAIL = "email"
+    PHONE = "phone"
+    LOCATION = "location"
+    WORK_RIGHT = "work_right"
+    EDUCATION = "education"
+    EXPERIENCE = "experience"
+    PROJECT = "project"
+    SKILL = "skill"
+    TOOL = "tool"
+    PROGRAMMING_LANGUAGE = "programming_language"
+    CERTIFICATION = "certification"
+    AVAILABILITY = "availability"
+
+
+CANDIDATE_FACT_TYPES = tuple(item.value for item in CandidateFactType)
+
+
 class ApplicationState(StrEnum):
     DISCOVERED = "DISCOVERED"
     SCREENED = "SCREENED"
@@ -19,6 +38,21 @@ class ApplicationState(StrEnum):
     REJECTED = "REJECTED"
     CLOSED = "CLOSED"
     SKIPPED = "SKIPPED"
+
+
+class ExecutionState(StrEnum):
+    READY_TO_APPLY = "READY_TO_APPLY"
+    OPENING_APPLICATION = "OPENING_APPLICATION"
+    FILLING_FORM = "FILLING_FORM"
+    WAITING_FOR_USER = "WAITING_FOR_USER"
+    RESUMING = "RESUMING"
+    HUMAN_VERIFICATION_REQUIRED = "HUMAN_VERIFICATION_REQUIRED"
+    POST_VERIFICATION_REVALIDATION = "POST_VERIFICATION_REVALIDATION"
+    READY_FOR_FINAL_REVIEW = "READY_FOR_FINAL_REVIEW"
+    SUBMITTING = "SUBMITTING"
+    APPLIED = "APPLIED"
+    BROWSER_CONTEXT_MISMATCH = "BROWSER_CONTEXT_MISMATCH"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True)
@@ -50,11 +84,14 @@ class ScoreConfig:
     location_weight: int = 10
     preferences_weight: int = 5
     strong_match_threshold: int = 85
-    possible_match_threshold: int = 70
+    good_match_threshold: int = 70
+    possible_match_threshold: int = 55
 
     def __post_init__(self) -> None:
         if sum(self.weights) != 100:
             raise ValueError("Score weights must sum to 100.")
+        if not 0 <= self.possible_match_threshold <= self.good_match_threshold <= self.strong_match_threshold <= 100:
+            raise ValueError("Match thresholds must be ordered: possible, good, strong.")
 
     @property
     def weights(self) -> tuple[int, ...]:
@@ -72,6 +109,11 @@ class ScoreBreakdown:
     eligibility_passed: bool
     hard_gate_reasons: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
+    matched_skills: tuple[str, ...] = ()
+    missing_skills: tuple[str, ...] = ()
+    matched_preferred_skills: tuple[str, ...] = ()
+    missing_preferred_skills: tuple[str, ...] = ()
+    experience_evidence: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:

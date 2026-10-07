@@ -18,3 +18,15 @@ def test_greenhouse_malformed_payload_is_empty(monkeypatch):
         def json(self): return []
     monkeypatch.setattr(httpx,"get",lambda *a,**k:Response())
     assert GreenhouseConnector().fetch("co")==[]
+
+
+def test_greenhouse_uses_registry_company_when_public_payload_omits_it(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"jobs": [{"id": 1, "title": "Data Analyst", "absolute_url": "https://jobs/1", "location": {"name": "Brisbane"}, "content": "SQL"}]}
+
+    monkeypatch.setattr(httpx, "get", lambda *_args, **_kwargs: Response())
+    assert GreenhouseConnector().fetch("example", "Example Australia")[0].company == "Example Australia"

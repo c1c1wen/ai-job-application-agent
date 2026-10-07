@@ -1,10 +1,46 @@
+# Local configuration and secrets. Keep the public template tracked.
 .env
+.env.*
+!.env.example
+
+# Local Python and Streamlit state.
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 .streamlit/
-data/*.sqlite3
-data/uploads/
-data/artifacts/
+
+# Runtime records and generated application files. These can contain candidate,
+# employer, application-answer, or ATS provenance data.
+data/
+candidate_documents/
+templates/
+artifacts/
+application_uploads/
+
+# Persistent browser profiles and Playwright local state can contain normal
+# authenticated sessions. Never publish cookies, tokens, or browser databases.
+data/browser_profile/
+.playwright/
+playwright/.auth/
+
+# Logs can contain operational or private metadata.
+logs/
+*.log
+
+# Local databases outside the standard runtime directory.
+*.sqlite
+*.sqlite3
+*.db
+
+# Local editor, OS, and build metadata.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
 *.egg-info/

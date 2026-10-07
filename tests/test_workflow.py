@@ -1,7 +1,12 @@
 import pytest
 
-from job_agent.domain.models import ApplicationState
-from job_agent.domain.workflow import InvalidTransition, assert_transition, is_human_checkpoint
+from job_agent.domain.models import ApplicationState, ExecutionState
+from job_agent.domain.workflow import (
+    InvalidTransition,
+    assert_execution_transition,
+    assert_transition,
+    is_human_checkpoint,
+)
 
 
 def test_approval_workflow_is_explicit():
@@ -18,3 +23,6 @@ def test_submission_cannot_skip_approval():
     with pytest.raises(InvalidTransition):
         assert_transition(ApplicationState.REVIEW, ApplicationState.APPLIED)
 
+
+def test_final_review_can_be_revalidated_without_submitting():
+    assert_execution_transition(ExecutionState.READY_FOR_FINAL_REVIEW, ExecutionState.RESUMING)

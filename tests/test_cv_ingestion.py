@@ -3,12 +3,12 @@ from io import BytesIO
 import pytest
 from docx import Document
 
-from job_agent.domain.models import CandidateFact
-from job_agent.llm.cv_extraction import validate_facts
+from job_agent.domain.models import CANDIDATE_FACT_TYPES, CandidateFact
+from job_agent.llm.cv_extraction import cv_fact_schema, validate_facts
 from job_agent.repositories.database import connect, migrate
 from job_agent.repositories.job_repository import JobRepository
 from job_agent.services.cv_parser import CVParseError, parse_cv
-from job_agent.services.cv_storage import store_upload
+from job_agent.services.cv_storage import replace_canonical_pdf, store_upload
 from job_agent.services.materials import grounded_materials
 
 
@@ -32,6 +32,12 @@ def test_text_bearing_pdf_parsing_and_uuid_storage(tmp_path):
     assert first != second and first.read_bytes()==b"one" and second.read_bytes()==b"two"
 
 
+def test_replacing_the_canonical_pdf_keeps_the_canonical_path_stable(tmp_path):
+    target = replace_canonical_pdf(tmp_path, b"updated-cv")
+    assert target == tmp_path / "candidate_documents" / "canonical_cv.pdf"
+    assert target.read_bytes() == b"updated-cv"
+
+
 def test_schema_and_pending_lifecycle(tmp_path):
     facts=validate_facts({"facts":[{"fact_type":"skill","value":"Python","evidence":"Skills","snippet":"Python","confidence":"high"}]})
     with pytest.raises((ValueError, TypeError)): validate_facts({"facts":[{"fact_type":"invented"}]})
@@ -44,3 +50,10 @@ def test_schema_and_pending_lifecycle(tmp_path):
     repo.review_fact(fid,"REJECTED")
     assert "Python 3" not in grounded_materials("Role","Co",repo.facts())["cover_letter"][0]
     assert repo.connection.execute("SELECT count(*) FROM profile_fact_versions WHERE fact_id=?",(fid,)).fetchone()[0] == 3
+
+
+def test_fact_type_schema_and_validator_share_canonical_vocabulary():
+    assert cv_fact_schema()["properties"]["facts"]["items"]["properties"]["fact_type"]["enum"] == list(CANDIDATE_FACT_TYPES)
+    assert validate_facts({"facts":[{"fact_type":"skill","value":"Python","evidence":"CV","snippet":"Python","confidence":"high"}]})
+    with pytest.raises(ValueError):
+        validate_facts({"facts":[{"fact_type":"tools","value":"Python","evidence":"CV","snippet":"Python","confidence":"high"}]})
